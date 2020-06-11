@@ -23,7 +23,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url='https://github.com/joshland/unificli.git',
     packages=setuptools.find_packages(),
-    install_requires=requires
+    install_requires=requires,
     dependency_links=[
         'https://github.com/joshland/unifi/tarball/master#egg=unifi-api-1.0.5'
     ],
@@ -35,6 +35,6 @@ setuptools.setup(
     ],
     entry_points="""\
     [console_scripts]
-    eisnmap = unificli:cli
+    unicli = unificli:main
     """,
 )

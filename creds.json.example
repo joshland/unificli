@@ -1,0 +1,6 @@
+{
+    "wifi.example.com": {
+        "user": "usernam",
+        "password": "password",
+    }
+}
