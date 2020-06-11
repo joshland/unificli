@@ -15,7 +15,7 @@ requires=[
 
 setuptools.setup(
     name='unificli',
-    version='1.0.0',
+    version='1.0.1',
     author='Joshua Schmidlkofer',
     author_email='joshland@gmail.com',
     description='API Ubiquity UniFi Controller',
