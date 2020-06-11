@@ -4,6 +4,7 @@ import os, sys
 import pprint
 import json
 import copy
+import atexit
 
 import click
 from loguru import logger
@@ -39,6 +40,8 @@ def connect(hostname, creds):
     unifi.username = creds['user']
     unifi.password = creds['password']
     retval = unifi.connect()
+    # this api call seems not to work.
+    #atexit.register(unifi.disconnect)
     logger.trace(f'Connection Results: {retval}')
     return unifi
 
@@ -98,6 +101,25 @@ def client_check(search_args, record):
         continue
     return False
 
+def blocking_search(searches, nodes):
+    ''' search nodes for list for blocking or unblocking '''
+    blocked = []
+    unblocked = []
+    for k, v in nodes.items():
+        if not client_check(searches, v):
+            logger.trace(f"skip non-matched {k}")
+            continue
+
+        if v['blocked']:
+            logger.trace(f"{v['hostname']} [{k}]: ({v['oui']}) {v['ip']}  [BLOCKED]")
+            blocked.append(k)
+        else:
+            logger.trace(f"{v['hostname']} [{k}]: ({v['oui']}) {v['ip']}  [OPEN]")
+            unblocked.append(k)
+            pass
+        continue
+
+    return blocked, unblocked
 
 @click.group()
 @click.option('--trace', '-t', default=False, required=False, is_flag=True)
@@ -110,8 +132,8 @@ def main(trace, debug):
 @click.option('--creds', '-c', default='creds.json', type=click.File('r'), required=False)
 @click.option('--all', '-a', default=False, required=False, is_flag=True)
 @click.argument('host', nargs=1)
-@click.argument('client', nargs=-1, required=False)
-def list(creds, all, host, client):
+@click.argument('searches', nargs=-1, required=False)
+def list(creds, all, host, searches):
     from tabulate import tabulate
 
     creds = loadcreds(creds)
@@ -123,7 +145,7 @@ def list(creds, all, host, client):
 
     results = []
     for k, v in nodes.items():
-        if not client_check(client, v):
+        if not client_check(searches, v):
             logger.trace(f"skip non-matched {k}")
             continue
 
@@ -147,8 +169,8 @@ def list(creds, all, host, client):
 @click.option('--dry-run', '-d', default=False, required=False, is_flag=True)
 @click.option('--yes', '-y', default=False, required=False, is_flag=True)
 @click.argument('host', nargs=1)
-@click.argument('client', nargs=-1, required=False)
-def block(creds, dry_run, yes, host, client):
+@click.argument('searches', nargs=-1, required=False)
+def block(creds, dry_run, yes, host, searches):
     from tabulate import tabulate
     from getkey import getkey, keys
 
@@ -162,25 +184,19 @@ def block(creds, dry_run, yes, host, client):
     results = []
     blocked = []
     pending = []
-    for k, v in nodes.items():
-        if not client_check(client, v):
-            logger.trace(f"skip non-matched {k}")
-            continue
 
-        if v['blocked']:
-            logger.warning(f"{v['hostname']} [{k}]: ({v['oui']}) {v['ip']}  [BLOCKED]")
-            results.append(
-                (v['hostname'],k,v['oui'],v['ip'], '[BLOCKED]')
-            )
-            blocked.append(k)
-        else:
-            logger.info(f"{v['hostname']} [{k}]: ({v['oui']}) {v['ip']}  ")
-            results.append(
-                (v['hostname'],k,v['oui'],v['ip'])
-            )
-            pending.append(k)
-            pass
+    blocked, pending = blocking_search(searches, nodes)
+
+    for mac in blocked:
+        v = nodes[mac]
+        results.append((v['hostname'],mac,v['oui'],v['ip'], '[BLOCKED]'))
         continue
+
+    for mac in pending:
+        v = nodes[mac]
+        results.append((v['hostname'],mac,v['oui'],v['ip'], '*PENDING*'))
+        continue
+
     while 1:
         print(tabulate(results, headers=['Hostname', 'Mac', 'OUI', 'IP', 'Status']))
         print()
@@ -202,21 +218,94 @@ def block(creds, dry_run, yes, host, client):
 
         if key in ('Y', 'y'):
             if dry_run:
-                logger.trace(f"{key} receive, Dry-run.")
-                print("Draino")
-                "report block"
+                logger.trace(f"{key} - execute dry-run")
+                for mac in pending:
+                    logger.info(f"unifi.block_sta({mac})")
+                    continue
                 break
             else:
-                logger.trace(f"{key} receive, They're dead.")
-                print("Draino")
-                "do block"
+                logger.trace(f"{key} - execute blocks.")
+                for mac in pending:
+                    unifi.block_sta(mac)
+                    continue
                 break
         elif key in ('N', 'n', '\n'):
             logger.trace(f"{key} receive, exiting.")
-            print("Fine. Be that way.")
+            print("quitting, no action taken.")
             break
         continue
-       
+    return 0
+@main.command()
+@click.option('--creds', '-c', default='creds.json', type=click.File('r'), required=False)
+@click.option('--dry-run', '-d', default=False, required=False, is_flag=True)
+@click.option('--yes', '-y', default=False, required=False, is_flag=True)
+@click.argument('host', nargs=1)
+@click.argument('searches', nargs=-1, required=False)
+def unblock(creds, dry_run, yes, host, searches):
+    from tabulate import tabulate
+    from getkey import getkey, keys
+
+    creds = loadcreds(creds)
+    local = creds[host]
+    unifi = connect(host, local)
+    uclients = unifi.get_clients()
+    uusers = unifi.get_users()
+    nodes = integrate_clients_users(uclients, uusers)
+
+    results = []
+    blocked = []
+    pending = []
+
+    pending, unblocked = blocking_search(searches, nodes)
+
+    for mac in pending:
+        v = nodes[mac]
+        results.append((v['hostname'],mac,v['oui'],v['ip'], '*PENDING*'))
+        continue
+
+    for mac in unblocked:
+        v = nodes[mac]
+        results.append((v['hostname'],mac,v['oui'],v['ip'], '[OPEN]'))
+        continue
+
+    while 1:
+        print(tabulate(results, headers=['Hostname', 'Mac', 'OUI', 'IP', 'Status']))
+        print()
+        if not len(pending):
+            logger.trace("No pending unblocks found.")
+            if len(unblocked):
+                print('Clients are not blocked.')
+                break
+            else:
+                print('No clients found')
+                break
+            print("")
+        if not yes:
+            key = input("Release Clients? (y/N) ")
+            print ()
+        else:
+            key = "y"
+            pass
+
+        if key in ('Y', 'y'):
+            if dry_run:
+                logger.trace(f"{key} - execute dry-run")
+                for mac in pending:
+                    logger.info(f"unifi.unblock_sta({mac})")
+                    logger.info(f"unifi.reconnect_sta({mac})")
+                    continue
+                break
+            else:
+                logger.trace(f"{key} - execute unblocks.")
+                for mac in pending:
+                    unifi.unblock_sta(mac)
+                    continue
+                break
+        elif key in ('N', 'n', '\n'):
+            logger.trace(f"{key} receive, exiting.")
+            print("quitting, no action taken.")
+            break
+        continue
     return 0
 
 if __name__ == "__main__":
