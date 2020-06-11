@@ -10,12 +10,12 @@ requires=[
     'pyyaml',
     'loguru',
     'tabulate',
-    'unifi-api'
+    'unifi-api @ https://github.com/joshland/unifi/tarball/master#egg=unifi-api'
 ]
 
 setuptools.setup(
     name='unificli',
-    version='1.0.1',
+    version='1.0.2',
     author='Joshua Schmidlkofer',
     author_email='joshland@gmail.com',
     description='API Ubiquity UniFi Controller',
@@ -25,7 +25,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     install_requires=requires,
     dependency_links=[
-        'https://github.com/joshland/unifi/tarball/master#egg=unifi-api-1.0.5'
+        'unifi-api @ https://github.com/joshland/unifi/tarball/master#egg=unifi-api'
     ],
     classifiers=[
         'Intended Audience :: Developers',

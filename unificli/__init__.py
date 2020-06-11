@@ -8,16 +8,7 @@ import atexit
 
 import click
 from loguru import logger
-from unifi import controller
-
-def fmt_clients(value):
-    ''' format json list into a python list by client MAC '''
-    retval = {}
-    for client in value:
-        retval[client['mac']] = client
-        continue
-    return retval
-
+from .functions import ClientManagement
 
 def loadcreds(credfile='creds.json'):
     retval = {}
@@ -61,30 +52,6 @@ def logit(trace, debug):
         pass
 
     pass
-
-def integrate_clients_users(clients, users):
-    ''' merge the clients and users into a single dict.'''
-    client = {
-        'hostname': 'n/a',
-        'oui': 'n/a',
-        'ip': 'n/a',
-        'blocked': False,
-    }
-    retval = {}
-    for c in clients:
-        key = c['mac']
-        retval[key] = copy.copy(client)
-        retval[key].update(c)
-        continue
-    for u in users:
-        key = u['mac']
-        try:
-            retval[key].update(u)
-        except KeyError:
-            retval[key] = copy.copy(client)
-            retval[key].update(u)
-        continue
-    return retval
 
 def client_check(search_args, record):
     ''' examine record field for items in search args '''
@@ -138,10 +105,9 @@ def list(creds, all, host, searches):
 
     creds = loadcreds(creds)
     local = creds[host]
-    unifi = connect(host, local)
-    uclients = unifi.get_clients()
-    uusers = unifi.get_users()
-    nodes = integrate_clients_users(uclients, uusers)
+    unifi = ClientManagement(host, **local)
+    unifi.filters = searches
+    nodes = unifi.get_clients_and_users()
 
     results = []
     for k, v in nodes.items():
@@ -176,10 +142,9 @@ def block(creds, dry_run, yes, host, searches):
 
     creds = loadcreds(creds)
     local = creds[host]
-    unifi = connect(host, local)
-    uclients = unifi.get_clients()
-    uusers = unifi.get_users()
-    nodes = integrate_clients_users(uclients, uusers)
+    local['filters'] = searches
+    unifi = ClientManagement(host, **local)
+    nodes = unifi.get_clients_and_users()
 
     results = []
     blocked = []
@@ -227,6 +192,7 @@ def block(creds, dry_run, yes, host, searches):
                 logger.trace(f"{key} - execute blocks.")
                 for mac in pending:
                     unifi.block_sta(mac)
+                    print(f"{nodes[mac]['hostname']} *SUCCESS* ")
                     continue
                 break
         elif key in ('N', 'n', '\n'):
@@ -234,6 +200,7 @@ def block(creds, dry_run, yes, host, searches):
             print("quitting, no action taken.")
             break
         continue
+    print()
     return 0
 @main.command()
 @click.option('--creds', '-c', default='creds.json', type=click.File('r'), required=False)
@@ -247,10 +214,9 @@ def unblock(creds, dry_run, yes, host, searches):
 
     creds = loadcreds(creds)
     local = creds[host]
-    unifi = connect(host, local)
-    uclients = unifi.get_clients()
-    uusers = unifi.get_users()
-    nodes = integrate_clients_users(uclients, uusers)
+    local['filters'] = searches
+    unifi = ClientManagement(host, **local)
+    nodes = unifi.get_clients_and_users()
 
     results = []
     blocked = []
@@ -299,6 +265,7 @@ def unblock(creds, dry_run, yes, host, searches):
                 logger.trace(f"{key} - execute unblocks.")
                 for mac in pending:
                     unifi.unblock_sta(mac)
+                    print(f"{nodes[mac]['hostname']} *SUCCESS* ")
                     continue
                 break
         elif key in ('N', 'n', '\n'):
@@ -306,6 +273,7 @@ def unblock(creds, dry_run, yes, host, searches):
             print("quitting, no action taken.")
             break
         continue
+    print()
     return 0
 
 if __name__ == "__main__":
